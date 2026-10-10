@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghi âm bài giảng thành văn bản</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+  #transcript { scroll-behavior: smooth; }
+  #transcript .final { color: #111827; font-weight: 500; }
+  #transcript .interim { color: #9ca3af; }
+  .rec-dot { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  @media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-900 min-h-screen">
+  <div class="max-w-4xl mx-auto px-4 py-6 flex flex-col gap-4 h-screen">
+
+    <header class="flex items-center justify-between flex-wrap gap-2">
+      <h1 class="text-xl font-semibold">Ghi âm bài giảng thành văn bản</h1>
+      <div class="flex items-center gap-2 text-sm text-slate-600">
+        <span id="dot" class="inline-block w-2.5 h-2.5 rounded-full bg-slate-300"></span>
+        <span id="statusText">Chưa ghi âm</span>
+      </div>
+    </header>
+
+    <div class="flex flex-wrap items-center gap-3">
+      <button id="btnStart" type="button"
+        class="px-8 py-3.5 text-lg font-semibold rounded-xl bg-emerald-600 text-white shadow hover:bg-emerald-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-emerald-300 disabled:opacity-40 disabled:cursor-not-allowed">
+        Bắt đầu ghi âm
+      </button>
+      <button id="btnStop" type="button" disabled
+        class="px-5 py-3 font-medium rounded-xl bg-rose-600 text-white hover:bg-rose-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-rose-300 disabled:opacity-40 disabled:cursor-not-allowed">
+        Dừng
+      </button>
+      <button id="btnExport" type="button"
+        class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 hover:border-slate-900 focus-visible:outline focus-visible:outline-4 focus-visible:outline-slate-300 disabled:opacity-40 disabled:cursor-not-allowed">
+        Tải file Notepad (.txt)
+      </button>
+      <button id="btnClear" type="button"
+        class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 text-rose-700 hover:border-rose-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-rose-200 disabled:opacity-40 disabled:cursor-not-allowed sm:ml-auto">
+        Xóa dữ liệu cũ
+      </button>
+    </div>
+
+    <div id="transcript" role="textbox" aria-readonly="true" aria-live="polite" aria-label="Văn bản ghi âm"
+      class="flex-1 min-h-[320px] overflow-y-auto bg-white border border-slate-300 rounded-2xl p-6 text-lg leading-8"></div>
+
+    <p id="note" class="text-sm text-slate-600 min-h-[1.25rem]"></p>
+  </div>
+
+<script>
+(function () {
+  const STORAGE_KEY = 'baigiang_transcript_v1';
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  const $ = (id) => document.getElementById(id);
+  const btnStart = $('btnStart'), btnStop = $('btnStop'),
+        btnExport = $('btnExport'), btnClear = $('btnClear');
+  const box = $('transcript'), dot = $('dot'),
+        statusText = $('statusText'), note = $('note');
+
+  let finals = [];            // các câu đã chốt
+  let interimEl = null;       // phần chữ đang nói (xám nhạt)
+  let wantListening = false;  // true từ lúc bấm Bắt đầu đến lúc bấm Dừng
+  let sessionStart = 0;
+  let quickFails = 0;
+  let restartTimer = null;
+  let wakeLock = null;
+
+  /* ---------- Tiện ích UI ---------- */
+  function setStatus(text, mode) {
+    statusText.textContent = text;
+    const base = 'inline-block w-2.5 h-2.5 rounded-full ';
+    dot.className = base + (mode === 'live' ? 'bg-rose-600 rec-dot'
+                          : mode === 'retry' ? 'bg-amber-500'
+                          : 'bg-slate-300');
+  }
+  function setNote(text, isErr) {
+    note.textContent = text || '';
+    note.className = 'text-sm min-h-[1.25rem] ' + (isErr ? 'text-rose-700' : 'text-slate-600');
+  }
+  function scrollToBottom() { box.scrollTop = box.scrollHeight; }
+  function updateButtons() {
+    const hasText = finals.length > 0 || !!interimText();
+    btnExport.disabled = !hasText;
+    btnClear.disabled = !hasText;
+  }
+  function interimText() { return interimEl ? interimEl.textContent : ''; }
+
+  /* ---------- Lưu trữ (auto-save) ---------- */
+  function save() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(finals)); }
+    catch (e) { setNote('Không lưu được vào bộ nhớ trình duyệt. Hãy bấm "Tải file" để giữ lại nội dung.', true); }
+  }
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.filter((s) => typeof s === 'string' && s.trim()) : [];
+    } catch (e) { return []; }
+  }
+
+  /* ---------- Hiển thị ---------- */
+  function renderEmptyHint() {
+    if (!finals.length && !interimEl && !box.querySelector('.empty')) {
+      const p = document.createElement('p');
+      p.className = 'empty text-slate-400';
+      p.textContent = 'Bấm "Bắt đầu ghi âm" rồi nói. Chữ sẽ hiện ở đây.';
+      box.appendChild(p);
+    }
+  }
+  function removeEmptyHint() {
+    const h = box.querySelector('.empty');
+    if (h) h.remove();
+  }
+  function appendFinalEl(text) {
+    removeEmptyHint();
+    const p = document.createElement('p');
+    p.className = 'final mb-2 max-w-[72ch]';
+    p.textContent = text;
+    if (interimEl) box.insertBefore(p, interimEl); else box.appendChild(p);
+  }
+  function addFinal(text) {
+    text = (text || '').trim();
+    if (!text) return;
+    finals.push(text);
+    save();                       // lưu ngay khi câu được chốt
+    appendFinalEl(text);
+    scrollToBottom();
+    updateButtons();
+  }
+  function showInterim(text) {
+    text = (text || '').trim();
+    if (!text) { clearInterim(); return; }
+    removeEmptyHint();
+    if (!interimEl) {
+      interimEl = document.createElement('p');
+      interimEl.className = 'interim mb-2 max-w-[72ch]';
+      box.appendChild(interimEl);
+    }
+    interimEl.textContent = text;
+    scrollToBottom();
+    updateButtons();
+  }
+  function clearInterim() {
+    if (interimEl) { interimEl.remove(); interimEl = null; }
+  }
+  function commitInterim() {
+    const left = interimText();
+    clearInterim();
+    if (left) addFinal(left);
+  }
+
+  /* ---------- Khôi phục dữ liệu khi tải trang ---------- */
+  finals = load();
+  finals.forEach(appendFinalEl);
+  renderEmptyHint();
+  scrollToBottom();
+  updateButtons();
+  if (finals.length) setNote('Đã khôi phục ' + finals.length + ' câu từ lần ghi âm trước. Bấm "Bắt đầu ghi âm" để ghi tiếp.');
+
+  /* ---------- Nhận diện giọng nói ---------- */
+  if (!SR) {
+    btnStart.disabled = true;
+    setNote('Trình duyệt này không hỗ trợ nhận diện giọng nói. Hãy mở bằng Google Chrome hoặc Microsoft Edge.', true);
+  } else {
+    const recognition = new SR();
+    recognition.lang = 'vi-VN';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = function () {
+      sessionStart = Date.now();
+      setStatus('Đang nghe…', 'live');
+    };
+
+    recognition.onresult = function (event) {
+      quickFails = 0;
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const res = event.results[i];
+        if (res.isFinal) addFinal(res[0].transcript);
+        else interim += res[0].transcript;
+      }
+      showInterim(interim);
+    };
+
+    recognition.onerror = function (event) {
+      switch (event.error) {
+        case 'no-speech':
+        case 'aborted':
+          break; // khoảng lặng bình thường, onend sẽ tự nghe lại
+        case 'not-allowed':
+        case 'service-not-allowed':
+          wantListening = false;
+          setNote('Chưa được cấp quyền micro. Bấm biểu tượng ổ khóa cạnh thanh địa chỉ, cho phép Micro rồi thử lại.', true);
+          break;
+        case 'audio-capture':
+          wantListening = false;
+          setNote('Không tìm thấy micro. Kiểm tra micro đã cắm và chọn đúng thiết bị chưa.', true);
+          break;
+        case 'network':
+          quickFails = Math.max(quickFails, 3);
+          setNote('Mất kết nối mạng, đang thử nghe lại. Nhận diện giọng nói của Chrome cần có Internet.', true);
+          break;
+        default:
+          setNote('Lỗi nhận diện: ' + event.error, true);
+      }
+    };
+
+    recognition.onend = function () {
+      commitInterim(); // chốt nốt chữ đang nói dở để không rớt chữ
+
+      if (!wantListening) {
+        setStatus('Đã dừng', '');
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+        releaseWakeLock();
+        return;
+      }
+      // Người dùng chưa bấm Dừng: nghe lại ngay lập tức
+      if (Date.now() - sessionStart < 1000) quickFails++;
+      const delay = quickFails === 0 ? 0 : Math.min(5000, 300 * quickFails);
+      setStatus(quickFails > 1 ? 'Đang kết nối lại…' : 'Đang nghe…', quickFails > 1 ? 'retry' : 'live');
+      scheduleStart(delay);
+    };
+
+    function scheduleStart(delay) {
+      clearTimeout(restartTimer);
+      restartTimer = setTimeout(safeStart, delay);
+    }
+    function safeStart() {
+      if (!wantListening) return;
+      try { recognition.start(); }
+      catch (e) { scheduleStart(300); } // InvalidStateError: phiên cũ chưa kết thúc hẳn
+    }
+
+    btnStart.addEventListener('click', function () {
+      if (wantListening) return;
+      wantListening = true;
+      quickFails = 0;
+      setNote('');
+      btnStart.disabled = true;
+      btnStop.disabled = false;
+      requestWakeLock();
+      safeStart();
+    });
+
+    btnStop.addEventListener('click', function () {
+      wantListening = false;
+      clearTimeout(restartTimer);
+      btnStop.disabled = true;
+      try { recognition.stop(); } catch (e) {}
+      // Nếu đang chờ khởi động lại thì onend sẽ không bắn, tự dọn
+      setTimeout(function () {
+        if (!wantListening && btnStart.disabled) {
+          commitInterim();
+          setStatus('Đã dừng', '');
+          btnStart.disabled = false;
+          releaseWakeLock();
+        }
+      }, 1500);
+    });
+  }
+
+  /* ---------- Giữ máy không ngủ ---------- */
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator && !wakeLock) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', function () { wakeLock = null; });
+      }
+    } catch (e) { /* bỏ qua nếu không hỗ trợ */ }
+  }
+  function releaseWakeLock() {
+    if (wakeLock) { wakeLock.release().catch(function () {}); wakeLock = null; }
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && wantListening) requestWakeLock();
+  });
+
+  /* ---------- Xuất file TXT ---------- */
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function buildFileName() {
+    const d = new Date();
+    return 'BaiGiang_' + pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + '-' + d.getFullYear() +
+           '_' + pad(d.getHours()) + 'h' + pad(d.getMinutes()) + '.txt';
+  }
+  btnExport.addEventListener('click', function () {
+    const lines = finals.slice();
+    if (interimText()) lines.push(interimText());
+    if (!lines.length) { setNote('Chưa có nội dung để tải.', true); return; }
+
+    // BOM + CRLF để Notepad hiển thị đúng tiếng Việt và xuống dòng
+    const content = '\uFEFF' + lines.join('\r\n');
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = buildFileName();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    setNote('Đã tạo file ' + a.download);
+  });
+
+  /* ---------- Xóa dữ liệu cũ ---------- */
+  btnClear.addEventListener('click', function () {
+    if (!confirm('Xóa toàn bộ văn bản đã ghi? Hãy chắc chắn bạn đã tải file về nếu cần.')) return;
+    finals = [];
+    clearInterim();
+    box.innerHTML = '';
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    renderEmptyHint();
+    updateButtons();
+    setNote('Đã xóa dữ liệu cũ. Sẵn sàng cho bài học mới.');
+  });
+
+  /* ---------- Lưu nốt chữ dở dang khi đóng tab ---------- */
+  window.addEventListener('pagehide', function () {
+    const left = interimText();
+    if (left) { finals.push(left); save(); }
+  });
+})();
+</script>
+</body>
+</html>
