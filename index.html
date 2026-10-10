@@ -3,8 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ghi âm bài giảng thành văn bản</title>
-<!-- Tích hợp icon.svg hiển thị trên Tab trình duyệt -->
+<title>BTn</title>
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -22,20 +21,19 @@
 
     <header class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-200 pb-4">
       <div class="flex items-center gap-3">
-        <!-- Hiển thị icon.svg làm Logo -->
         <img src="icon.svg" alt="Logo" class="w-10 h-10 object-contain drop-shadow-sm">
-        <h1 class="text-xl font-semibold">Ghi âm bài giảng thành văn bản</h1>
+        <h1 class="text-xl font-semibold">n</h1>
       </div>
       <div class="flex items-center gap-2 text-sm text-slate-600 font-medium bg-white px-3 py-1.5 rounded-full shadow-sm border border-slate-200">
         <span id="dot" class="inline-block w-2.5 h-2.5 rounded-full bg-slate-300"></span>
-        <span id="statusText">Chưa ghi âm</span>
+        <span id="statusText">Chưa </span>
       </div>
     </header>
 
     <div class="flex flex-wrap items-center gap-3">
       <button id="btnStart" type="button"
         class="px-8 py-3.5 text-lg font-semibold rounded-xl bg-emerald-600 text-white shadow hover:bg-emerald-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-emerald-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-        Bắt đầu ghi âm
+        Bắt 
       </button>
       <button id="btnStop" type="button" disabled
         class="px-5 py-3 font-medium rounded-xl bg-rose-600 text-white shadow hover:bg-rose-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-rose-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
@@ -43,11 +41,11 @@
       </button>
       <button id="btnExport" type="button" disabled
         class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 hover:border-slate-900 focus-visible:outline focus-visible:outline-4 focus-visible:outline-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-        Tải file Chữ (.txt)
+         file Chữ (.txt)
       </button>
       <button id="btnExportAudio" type="button" disabled
         class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 hover:border-slate-900 focus-visible:outline focus-visible:outline-4 focus-visible:outline-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-        Tải file Âm thanh (.webm)
+         file Âm thanh (.webm)
       </button>
       <button id="btnClear" type="button" disabled
         class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 text-rose-700 hover:border-rose-700 hover:bg-rose-50 focus-visible:outline focus-visible:outline-4 focus-visible:outline-rose-200 disabled:opacity-40 disabled:cursor-not-allowed sm:ml-auto transition-all">
@@ -63,7 +61,7 @@
 
 <script>
 (function () {
-  const STORAGE_KEY = 'baigiang_transcript_v1';
+  const STORAGE_KEY = 'baigiang_transcript_v2';
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   const $ = (id) => document.getElementById(id);
@@ -75,17 +73,27 @@
   let finals = [];            
   let interimEl = null;       
   let wantListening = false;  
-  let sessionStart = 0;
+  let globalStartTime = 0; // Mốc thời gian bắt đầu file webm
   let quickFails = 0;
   let restartTimer = null;
   let wakeLock = null;
 
-  // Biến quản lý ghi âm Audio chạy ngầm
   let mediaRecorder = null;
   let audioChunks = [];
   let audioBlobUrl = null;
 
-  /* ---------- Tiện ích UI ---------- */
+  /* ---------- Tiện ích UI & Thời gian ---------- */
+  function pad(n) { return String(n).padStart(2, '0'); }
+  
+  function formatTime(ms) {
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) return '[' + pad(h) + ':' + pad(m) + ':' + pad(s) + '] ';
+    return '[' + pad(m) + ':' + pad(s) + '] ';
+  }
+
   function setStatus(text, mode) {
     statusText.textContent = text;
     const base = 'inline-block w-2.5 h-2.5 rounded-full ';
@@ -108,7 +116,7 @@
   /* ---------- Lưu trữ (auto-save text) ---------- */
   function save() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(finals)); }
-    catch (e) { setNote('Không lưu được vào bộ nhớ trình duyệt. Hãy bấm "Tải file" để giữ lại nội dung.', true); }
+    catch (e) { setNote('Không lưu được vào bộ nhớ.', true); }
   }
   function load() {
     try {
@@ -118,12 +126,12 @@
     } catch (e) { return []; }
   }
 
-  /* ---------- Hiển thị Text ---------- */
+  /* ---------- Hiển thị Text kèm Timestamp ---------- */
   function renderEmptyHint() {
     if (!finals.length && !interimEl && !box.querySelector('.empty')) {
       const p = document.createElement('p');
       p.className = 'empty text-slate-400 italic';
-      p.textContent = 'Bấm "Bắt đầu ghi âm" rồi nói. Văn bản sẽ hiển thị theo thời gian thực tại đây...';
+      p.textContent = 'mốc thời gian sẽ hiển thị tại đây...';
       box.appendChild(p);
     }
   }
@@ -138,15 +146,22 @@
     p.textContent = text;
     if (interimEl) box.insertBefore(p, interimEl); else box.appendChild(p);
   }
+  
   function addFinal(text) {
     text = (text || '').trim();
     if (!text) return;
-    finals.push(text);
+    
+    // Gắn timestamp tính từ globalStartTime
+    let elapsed = globalStartTime > 0 ? Date.now() - globalStartTime : 0;
+    const stampedText = formatTime(elapsed) + text;
+
+    finals.push(stampedText);
     save();                       
-    appendFinalEl(text);
+    appendFinalEl(stampedText);
     scrollToBottom();
     updateButtons();
   }
+  
   function showInterim(text) {
     text = (text || '').trim();
     if (!text) { clearInterim(); return; }
@@ -166,16 +181,16 @@
   function commitInterim() {
     const left = interimText();
     clearInterim();
-    if (left) addFinal(left);
+    if (left) addFinal(left); // addFinal sẽ tự động gắn timestamp cho câu bị ngắt dở
   }
 
-  /* ---------- Khôi phục dữ liệu khi tải trang ---------- */
+  /* ---------- Khôi phục dữ liệu ---------- */
   finals = load();
   finals.forEach(appendFinalEl);
   renderEmptyHint();
   scrollToBottom();
   updateButtons();
-  if (finals.length) setNote('Đã khôi phục ' + finals.length + ' câu từ lần ghi âm trước.');
+  if (finals.length) setNote('Đã khôi phục dữ liệu cũ có kèm mốc thời gian.');
 
   /* ---------- Nhận diện giọng nói & Ghi âm Audio ---------- */
   if (!SR) {
@@ -189,8 +204,7 @@
     recognition.maxAlternatives = 1;
 
     recognition.onstart = function () {
-      sessionStart = Date.now();
-      setStatus('Đang thu âm & Phân tích…', 'live');
+      setStatus('g ch…', 'live');
     };
 
     recognition.onresult = function (event) {
@@ -207,27 +221,25 @@
     recognition.onerror = function (event) {
       switch (event.error) {
         case 'no-speech':
-        case 'aborted':
-          break; 
+        case 'aborted': break; 
         case 'not-allowed':
         case 'service-not-allowed':
           wantListening = false;
-          setNote('Chưa được cấp quyền micro. Bấm biểu tượng ổ khóa cạnh thanh địa chỉ để cho phép.', true);
+          setNote('Chưa cấp quyền micro.', true);
           break;
         case 'audio-capture':
           wantListening = false;
-          setNote('Không tìm thấy micro trên máy.', true);
+          setNote('Không tìm thấy micro.', true);
           break;
         case 'network':
           quickFails = Math.max(quickFails, 3);
-          setNote('Mất kết nối mạng, đang thử nghe lại...', true);
+          setNote('Mất mạng, đang thử kết nối lại...', true);
           break;
       }
     };
 
     recognition.onend = function () {
       commitInterim(); 
-
       if (!wantListening) {
         setStatus('Đã dừng', '');
         btnStart.disabled = false;
@@ -235,10 +247,9 @@
         releaseWakeLock();
         return;
       }
-      
-      if (Date.now() - sessionStart < 1000) quickFails++;
+      quickFails++;
       const delay = quickFails === 0 ? 0 : Math.min(5000, 300 * quickFails);
-      setStatus(quickFails > 1 ? 'Đang kết nối lại…' : 'Đang thu âm & Phân tích…', quickFails > 1 ? 'retry' : 'live');
+      setStatus(quickFails > 1 ? 'Đang kết nối lại…' : 'Đang thu âm…', quickFails > 1 ? 'retry' : 'live');
       scheduleStart(delay);
     };
 
@@ -255,13 +266,13 @@
     btnStart.addEventListener('click', async function () {
       if (wantListening) return;
       wantListening = true;
+      globalStartTime = Date.now(); // Chốt mốc 00:00 của audio file
       quickFails = 0;
       setNote('');
       btnStart.disabled = true;
       btnStop.disabled = false;
       requestWakeLock();
       
-      // Bật Audio Recorder ngầm
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioChunks = [];
@@ -277,7 +288,6 @@
         };
         mediaRecorder.start();
         
-        // Bật Speech Recognition
         safeStart();
       } catch (err) {
         wantListening = false;
@@ -292,10 +302,8 @@
       clearTimeout(restartTimer);
       btnStop.disabled = true;
       
-      // Tắt Speech Recognition
       try { recognition.stop(); } catch (e) {}
       
-      // Tắt Audio Recorder và giải phóng Micro
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
         mediaRecorder.stream.getTracks().forEach(t => t.stop());
@@ -330,7 +338,6 @@
   });
 
   /* ---------- Xuất file TXT & Audio ---------- */
-  function pad(n) { return String(n).padStart(2, '0'); }
   function buildFileName(ext) {
     const d = new Date();
     return 'BaiGiang_' + pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + '-' + d.getFullYear() +
@@ -340,7 +347,7 @@
   btnExport.addEventListener('click', function () {
     const lines = finals.slice();
     if (interimText()) lines.push(interimText());
-    if (!lines.length) { setNote('Chưa có nội dung chữ để tải.', true); return; }
+    if (!lines.length) return;
 
     const content = '\uFEFF' + lines.join('\r\n');
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -366,10 +373,11 @@
 
   /* ---------- Xóa dữ liệu cũ ---------- */
   btnClear.addEventListener('click', function () {
-    if (!confirm('Xóa toàn bộ VĂN BẢN và ÂM THANH đã ghi? Hãy chắc chắn bạn đã tải file về.')) return;
+    if (!confirm('Xóa toàn bộ VĂN BẢN và ÂM THANH đã ghi?')) return;
     finals = [];
     clearInterim();
     box.innerHTML = '';
+    globalStartTime = 0;
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     
     if (audioBlobUrl) {
@@ -380,7 +388,6 @@
     
     renderEmptyHint();
     updateButtons();
-    setNote('Đã xóa sạch dữ liệu cũ. Sẵn sàng thu âm bài mới.');
   });
 
   window.addEventListener('pagehide', function () {
