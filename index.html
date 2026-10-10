@@ -276,8 +276,11 @@
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioChunks = [];
+        
+        // Tối ưu hóa cho thời gian dài: cắt nhỏ chunk mỗi 1000ms (1 giây)
         mediaRecorder = new MediaRecorder(stream);
         mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+        
         mediaRecorder.onstop = () => {
           const blob = new Blob(audioChunks, { type: 'audio/webm' });
           if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
@@ -286,7 +289,9 @@
           btnClear.disabled = false;
           setNote('Đã đóng gói xong file Âm thanh và Văn bản. Đã có thể tải về!');
         };
-        mediaRecorder.start();
+        
+        // Bắt đầu thu âm, cắt chunk mỗi 1 giây để chống đầy RAM
+        mediaRecorder.start(1000);
         
         safeStart();
       } catch (err) {
