@@ -8,55 +8,53 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
-  #transcript { scroll-behavior: smooth; }
-  #transcript .final { color: #111827; font-weight: 500; }
-  #transcript .interim { color: #9ca3af; }
   .rec-dot { animation: pulse 1.4s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .3; } }
   @media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
 </style>
 </head>
-<body class="bg-slate-100 text-slate-900 min-h-screen">
-  <div class="max-w-5xl mx-auto px-4 py-6 flex flex-col gap-4 h-screen">
+<body class="bg-slate-100 text-slate-900 min-h-screen flex items-center justify-center p-4">
+  <div class="max-w-xl w-full bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-6">
 
-    <header class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-200 pb-4">
+    <header class="flex items-center justify-between border-b border-slate-200 pb-4">
       <div class="flex items-center gap-3">
         <img src="icon.svg" alt="Logo" class="w-10 h-10 object-contain drop-shadow-sm">
-        <h1 class="text-xl font-semibold">n</h1>
+        <h1 class="text-xl font-semibold">G</h1>
       </div>
-      <div class="flex items-center gap-2 text-sm text-slate-600 font-medium bg-white px-3 py-1.5 rounded-full shadow-sm border border-slate-200">
+      <div class="flex items-center gap-2 text-sm text-slate-600 font-medium bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200">
         <span id="dot" class="inline-block w-2.5 h-2.5 rounded-full bg-slate-300"></span>
-        <span id="statusText">Chưa </span>
+        <span id="statusText">Ch</span>
       </div>
     </header>
 
     <div class="flex flex-wrap items-center gap-3">
       <button id="btnStart" type="button"
-        class="px-8 py-3.5 text-lg font-semibold rounded-xl bg-emerald-600 text-white shadow hover:bg-emerald-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-emerald-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-        Bắt 
+        class="flex-1 min-w-[120px] px-6 py-3.5 text-lg font-semibold rounded-xl bg-emerald-600 text-white shadow hover:bg-emerald-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-emerald-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+        B
       </button>
       <button id="btnStop" type="button" disabled
-        class="px-5 py-3 font-medium rounded-xl bg-rose-600 text-white shadow hover:bg-rose-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-rose-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+        class="flex-1 min-w-[120px] px-6 py-3.5 text-lg font-semibold rounded-xl bg-rose-600 text-white shadow hover:bg-rose-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-rose-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
         Dừng
-      </button>
-      <button id="btnExport" type="button" disabled
-        class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 hover:border-slate-900 focus-visible:outline focus-visible:outline-4 focus-visible:outline-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-         file Chữ (.txt)
-      </button>
-      <button id="btnExportAudio" type="button" disabled
-        class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 hover:border-slate-900 focus-visible:outline focus-visible:outline-4 focus-visible:outline-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-         file Âm thanh (.webm)
-      </button>
-      <button id="btnClear" type="button" disabled
-        class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 text-rose-700 hover:border-rose-700 hover:bg-rose-50 focus-visible:outline focus-visible:outline-4 focus-visible:outline-rose-200 disabled:opacity-40 disabled:cursor-not-allowed sm:ml-auto transition-all">
-        Xóa dữ liệu
       </button>
     </div>
 
-    <div id="transcript" role="textbox" aria-readonly="true" aria-live="polite" aria-label="Văn bản ghi âm"
-      class="flex-1 min-h-[320px] overflow-y-auto bg-white shadow-sm border border-slate-200 rounded-2xl p-6 text-lg leading-8"></div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <button id="btnExport" type="button" disabled
+        class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 hover:border-slate-900 focus-visible:outline focus-visible:outline-4 focus-visible:outline-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+        X (.t)
+      </button>
+      <button id="btnExportAudio" type="button" disabled
+        class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 hover:border-slate-900 focus-visible:outline focus-visible:outline-4 focus-visible:outline-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+        X(.w)
+      </button>
+    </div>
 
-    <p id="note" class="text-sm text-slate-600 min-h-[1.25rem]"></p>
+    <button id="btnClear" type="button" disabled
+      class="w-full px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 text-rose-700 hover:border-rose-700 hover:bg-rose-50 focus-visible:outline focus-visible:outline-4 focus-visible:outline-rose-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+      Xu
+    </button>
+
+    <p id="note" class="text-sm text-center text-slate-600 min-h-[1.25rem]"></p>
   </div>
 
 <script>
@@ -67,13 +65,12 @@
   const $ = (id) => document.getElementById(id);
   const btnStart = $('btnStart'), btnStop = $('btnStop'),
         btnExport = $('btnExport'), btnExportAudio = $('btnExportAudio'), btnClear = $('btnClear');
-  const box = $('transcript'), dot = $('dot'),
-        statusText = $('statusText'), note = $('note');
+  const dot = $('dot'), statusText = $('statusText'), note = $('note');
 
   let finals = [];            
-  let interimEl = null;       
+  let currentInterim = '';    
   let wantListening = false;  
-  let globalStartTime = 0; // Mốc thời gian bắt đầu file webm
+  let globalStartTime = 0;
   let quickFails = 0;
   let restartTimer = null;
   let wakeLock = null;
@@ -103,17 +100,15 @@
   }
   function setNote(text, isErr) {
     note.textContent = text || '';
-    note.className = 'text-sm font-medium min-h-[1.25rem] ' + (isErr ? 'text-rose-600' : 'text-slate-600');
+    note.className = 'text-sm font-medium text-center min-h-[1.25rem] ' + (isErr ? 'text-rose-600' : 'text-slate-600');
   }
-  function scrollToBottom() { box.scrollTop = box.scrollHeight; }
   function updateButtons() {
-    const hasText = finals.length > 0 || !!interimText();
+    const hasText = finals.length > 0 || !!currentInterim.trim();
     btnExport.disabled = !hasText;
     btnClear.disabled = !hasText && !audioBlobUrl;
   }
-  function interimText() { return interimEl ? interimEl.textContent : ''; }
 
-  /* ---------- Lưu trữ (auto-save text) ---------- */
+  /* ---------- Lưu trữ (auto-save text ngầm) ---------- */
   function save() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(finals)); }
     catch (e) { setNote('Không lưu được vào bộ nhớ.', true); }
@@ -126,71 +121,29 @@
     } catch (e) { return []; }
   }
 
-  /* ---------- Hiển thị Text kèm Timestamp ---------- */
-  function renderEmptyHint() {
-    if (!finals.length && !interimEl && !box.querySelector('.empty')) {
-      const p = document.createElement('p');
-      p.className = 'empty text-slate-400 italic';
-      p.textContent = 'mốc thời gian sẽ hiển thị tại đây...';
-      box.appendChild(p);
-    }
-  }
-  function removeEmptyHint() {
-    const h = box.querySelector('.empty');
-    if (h) h.remove();
-  }
-  function appendFinalEl(text) {
-    removeEmptyHint();
-    const p = document.createElement('p');
-    p.className = 'final mb-2 max-w-[72ch]';
-    p.textContent = text;
-    if (interimEl) box.insertBefore(p, interimEl); else box.appendChild(p);
-  }
-  
+  /* ---------- Xử lý dữ liệu văn bản ngầm ---------- */
   function addFinal(text) {
     text = (text || '').trim();
     if (!text) return;
     
-    // Gắn timestamp tính từ globalStartTime
     let elapsed = globalStartTime > 0 ? Date.now() - globalStartTime : 0;
     const stampedText = formatTime(elapsed) + text;
 
     finals.push(stampedText);
-    save();                       
-    appendFinalEl(stampedText);
-    scrollToBottom();
+    save();                         
     updateButtons();
   }
-  
-  function showInterim(text) {
-    text = (text || '').trim();
-    if (!text) { clearInterim(); return; }
-    removeEmptyHint();
-    if (!interimEl) {
-      interimEl = document.createElement('p');
-      interimEl.className = 'interim mb-2 max-w-[72ch]';
-      box.appendChild(interimEl);
-    }
-    interimEl.textContent = text;
-    scrollToBottom();
-    updateButtons();
-  }
-  function clearInterim() {
-    if (interimEl) { interimEl.remove(); interimEl = null; }
-  }
+
   function commitInterim() {
-    const left = interimText();
-    clearInterim();
-    if (left) addFinal(left); // addFinal sẽ tự động gắn timestamp cho câu bị ngắt dở
+    const left = currentInterim.trim();
+    currentInterim = '';
+    if (left) addFinal(left);
   }
 
   /* ---------- Khôi phục dữ liệu ---------- */
   finals = load();
-  finals.forEach(appendFinalEl);
-  renderEmptyHint();
-  scrollToBottom();
   updateButtons();
-  if (finals.length) setNote('Đã khôi phục dữ liệu cũ có kèm mốc thời gian.');
+  if (finals.length) setNote('Đã khôi phục dữ liệu cũ trong bộ nhớ.');
 
   /* ---------- Nhận diện giọng nói & Ghi âm Audio ---------- */
   if (!SR) {
@@ -204,7 +157,7 @@
     recognition.maxAlternatives = 1;
 
     recognition.onstart = function () {
-      setStatus('g ch…', 'live');
+      setStatus('…', 'live');
     };
 
     recognition.onresult = function (event) {
@@ -215,7 +168,8 @@
         if (res.isFinal) addFinal(res[0].transcript);
         else interim += res[0].transcript;
       }
-      showInterim(interim);
+      currentInterim = interim;
+      updateButtons();
     };
 
     recognition.onerror = function (event) {
@@ -249,7 +203,7 @@
       }
       quickFails++;
       const delay = quickFails === 0 ? 0 : Math.min(5000, 300 * quickFails);
-      setStatus(quickFails > 1 ? 'Đang kết nối lại…' : 'Đang thu âm…', quickFails > 1 ? 'retry' : 'live');
+      setStatus(quickFails > 1 ? 'Đang kết nối lại…' : 'Đ…', quickFails > 1 ? 'retry' : 'live');
       scheduleStart(delay);
     };
 
@@ -266,7 +220,7 @@
     btnStart.addEventListener('click', async function () {
       if (wantListening) return;
       wantListening = true;
-      globalStartTime = Date.now(); // Chốt mốc 00:00 của audio file
+      globalStartTime = Date.now();
       quickFails = 0;
       setNote('');
       btnStart.disabled = true;
@@ -277,7 +231,6 @@
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioChunks = [];
         
-        // Tối ưu hóa cho thời gian dài: cắt nhỏ chunk mỗi 1000ms (1 giây)
         mediaRecorder = new MediaRecorder(stream);
         mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
         
@@ -287,12 +240,10 @@
           audioBlobUrl = URL.createObjectURL(blob);
           btnExportAudio.disabled = false;
           btnClear.disabled = false;
-          setNote('Đã đóng gói xong file Âm thanh và Văn bản. Đã có thể tải về!');
+          setNote('Đã hoàn tất ghi ngầm âm thanh và văn bản. Bạn có thể tải về!');
         };
         
-        // Bắt đầu thu âm, cắt chunk mỗi 1 giây để chống đầy RAM
         mediaRecorder.start(1000);
-        
         safeStart();
       } catch (err) {
         wantListening = false;
@@ -345,13 +296,13 @@
   /* ---------- Xuất file TXT & Audio ---------- */
   function buildFileName(ext) {
     const d = new Date();
-    return 'BaiGiang_' + pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + '-' + d.getFullYear() +
+    return 'B_' + pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + '-' + d.getFullYear() +
            '_' + pad(d.getHours()) + 'h' + pad(d.getMinutes()) + ext;
   }
   
   btnExport.addEventListener('click', function () {
     const lines = finals.slice();
-    if (interimText()) lines.push(interimText());
+    if (currentInterim.trim()) lines.push(currentInterim.trim());
     if (!lines.length) return;
 
     const content = '\uFEFF' + lines.join('\r\n');
@@ -378,10 +329,9 @@
 
   /* ---------- Xóa dữ liệu cũ ---------- */
   btnClear.addEventListener('click', function () {
-    if (!confirm('Xóa toàn bộ VĂN BẢN và ÂM THANH đã ghi?')) return;
+    if (!confirm('Xóa ')) return;
     finals = [];
-    clearInterim();
-    box.innerHTML = '';
+    currentInterim = '';
     globalStartTime = 0;
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     
@@ -391,12 +341,12 @@
       btnExportAudio.disabled = true;
     }
     
-    renderEmptyHint();
+    setNote('Đã xóa dữ liệu.');
     updateButtons();
   });
 
   window.addEventListener('pagehide', function () {
-    const left = interimText();
+    const left = currentInterim.trim();
     if (left) { finals.push(left); save(); }
   });
 })();
