@@ -38,6 +38,15 @@
       </button>
     </div>
 
+    <!-- MỚI: chế độ thu âm thanh máy -->
+    <label class="flex items-start gap-3 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 cursor-pointer">
+      <input id="chkSystemAudio" type="checkbox" class="mt-0.5 w-4 h-4 accent-emerald-600">
+      <span>
+        <span class="font-medium">Thu cả âm thanh máy (học Meet)</span><br>
+        <span class="text-xs text-slate-500">Khi bấm bắt đầu, chọn tab Meet và tick "Chia sẻ âm thanh tab". Dùng Chrome/Edge trên máy tính.</span>
+      </span>
+    </label>
+
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <button id="btnExport" type="button" disabled
         class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 hover:border-slate-900 focus-visible:outline focus-visible:outline-4 focus-visible:outline-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
@@ -66,6 +75,7 @@
   const btnStart = $('btnStart'), btnStop = $('btnStop'),
         btnExport = $('btnExport'), btnExportAudio = $('btnExportAudio'), btnClear = $('btnClear');
   const dot = $('dot'), statusText = $('statusText'), note = $('note');
+  const chkSystemAudio = $('chkSystemAudio');
 
   let finals = [];            
   let currentInterim = '';    
@@ -78,6 +88,11 @@
   let mediaRecorder = null;
   let audioChunks = [];
   let audioBlobUrl = null;
+
+  // MỚI: các luồng âm thanh để dọn dẹp khi dừng
+  let micStream = null;
+  let displayStream = null;
+  let audioCtx = null;
 
   /* ---------- Tiện ích UI & Thời gian ---------- */
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -138,6 +153,16 @@
     const left = currentInterim.trim();
     currentInterim = '';
     if (left) addFinal(left);
+  }
+
+  /* ---------- MỚI: dọn các luồng âm thanh ---------- */
+  function cleanupStreams() {
+    [micStream, displayStream].forEach(function (s) {
+      if (s) s.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+    });
+    micStream = null;
+    displayStream = null;
+    if (audioCtx) { try { audioCtx.close(); } catch (e) {} audioCtx = null; }
   }
 
   /* ---------- Khôi phục dữ liệu ---------- */
@@ -228,10 +253,40 @@
       requestWakeLock();
       
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        let noteAfter = '';
+
+        // MỚI: xin chia sẻ tab/màn hình (phải gọi trước, ngay trong lúc bấm nút)
+        if (chkSystemAudio.checked) {
+          if (!navigator.mediaDevices.getDisplayMedia) {
+            throw new Error('Trình duyệt không hỗ trợ thu âm thanh máy.');
+          }
+          displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+          if (displayStream.getAudioTracks().length === 0) {
+            displayStream.getTracks().forEach(function (t) { t.stop(); });
+            displayStream = null;
+            noteAfter = 'Không có âm thanh máy (quên tick "Chia sẻ âm thanh tab"?). Đang chỉ thu micro.';
+          } else {
+            // Nếu bấm "Dừng chia sẻ" trên thanh Chrome thì chỉ báo, micro vẫn chạy
+            displayStream.getAudioTracks()[0].addEventListener('ended', function () {
+              if (wantListening) setNote('Đã dừng chia sẻ âm thanh máy, vẫn đang thu micro.', true);
+            });
+          }
+        }
+
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioChunks = [];
+
+        // Luồng để ghi: nếu có âm thanh máy thì trộn micro + âm thanh máy
+        let recordStream = micStream;
+        if (displayStream) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          const dest = audioCtx.createMediaStreamDestination();
+          audioCtx.createMediaStreamSource(micStream).connect(dest);
+          audioCtx.createMediaStreamSource(new MediaStream(displayStream.getAudioTracks())).connect(dest);
+          recordStream = dest.stream;
+        }
         
-        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder = new MediaRecorder(recordStream);
         mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
         
         mediaRecorder.onstop = () => {
@@ -244,9 +299,11 @@
         };
         
         mediaRecorder.start(1000);
+        if (noteAfter) setNote(noteAfter, true);
         safeStart();
       } catch (err) {
         wantListening = false;
+        cleanupStreams();
         btnStart.disabled = false;
         btnStop.disabled = true;
         setNote('Lỗi quyền Micro: ' + err.message, true);
@@ -262,9 +319,9 @@
       
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
-        mediaRecorder.stream.getTracks().forEach(t => t.stop());
         mediaRecorder = null;
       }
+      cleanupStreams();
 
       setTimeout(function () {
         if (!wantListening && btnStart.disabled) {
