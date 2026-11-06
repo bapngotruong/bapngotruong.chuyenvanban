@@ -38,15 +38,6 @@
       </button>
     </div>
 
-    <!-- MỚI: chế độ thu âm thanh máy -->
-    <label class="flex items-start gap-3 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 cursor-pointer">
-      <input id="chkSystemAudio" type="checkbox" class="mt-0.5 w-4 h-4 accent-emerald-600">
-      <span>
-        <span class="font-medium">eet)</span><br>
-        <span class="text-xs text-slate-500">tính.</span>
-      </span>
-    </label>
-
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <button id="btnExport" type="button" disabled
         class="px-5 py-3 font-medium rounded-xl bg-white border border-slate-300 hover:border-slate-900 focus-visible:outline focus-visible:outline-4 focus-visible:outline-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
@@ -63,8 +54,6 @@
       Xu
     </button>
 
-    <p id="dataInfo" class="text-sm text-center font-medium rounded-xl px-4 py-2 border border-slate-200 bg-slate-50 text-slate-600"></p>
-
     <p id="note" class="text-sm text-center text-slate-600 min-h-[1.25rem]"></p>
   </div>
 
@@ -77,9 +66,6 @@
   const btnStart = $('btnStart'), btnStop = $('btnStop'),
         btnExport = $('btnExport'), btnExportAudio = $('btnExportAudio'), btnClear = $('btnClear');
   const dot = $('dot'), statusText = $('statusText'), note = $('note');
-  const chkSystemAudio = $('chkSystemAudio');
-  const dataInfo = $('dataInfo');
-  const CLEARED_KEY = 'baigiang_cleared';
 
   let finals = [];            
   let currentInterim = '';    
@@ -91,50 +77,7 @@
 
   let mediaRecorder = null;
   let audioChunks = [];
-  let savedAudios = [];   // các bản ghi âm đã lưu (giữ lại qua nhiều phiên)
-  let dbLoaded = false;
-
-  /* ---------- Lưu âm thanh bền vững (IndexedDB) ---------- */
-  const DB_NAME = 'baigiang_audio_v1', STORE = 'rec';
-  function openDb() {
-    return new Promise(function (res, rej) {
-      const r = indexedDB.open(DB_NAME, 1);
-      r.onupgradeneeded = function () { r.result.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true }); };
-      r.onsuccess = function () { res(r.result); };
-      r.onerror = function () { rej(r.error); };
-    });
-  }
-  async function dbAdd(blob) {
-    const db = await openDb();
-    return new Promise(function (res, rej) {
-      const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).add({ blob: blob, t: Date.now() });
-      tx.oncomplete = function () { res(); };
-      tx.onerror = function () { rej(tx.error); };
-    });
-  }
-  async function dbAll() {
-    const db = await openDb();
-    return new Promise(function (res, rej) {
-      const rq = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
-      rq.onsuccess = function () { res(rq.result || []); };
-      rq.onerror = function () { rej(rq.error); };
-    });
-  }
-  async function dbClear() {
-    const db = await openDb();
-    return new Promise(function (res, rej) {
-      const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).clear();
-      tx.oncomplete = function () { res(); };
-      tx.onerror = function () { rej(tx.error); };
-    });
-  }
-
-  // MỚI: các luồng âm thanh để dọn dẹp khi dừng
-  let micStream = null;
-  let displayStream = null;
-  let audioCtx = null;
+  let audioBlobUrl = null;
 
   /* ---------- Tiện ích UI & Thời gian ---------- */
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -162,34 +105,12 @@
   function updateButtons() {
     const hasText = finals.length > 0 || !!currentInterim.trim();
     btnExport.disabled = !hasText;
-    btnClear.disabled = !hasText && !savedAudios.length;
-    renderDataInfo();
-  }
-
-  /* ---------- Hiển thị tình trạng dữ liệu cũ ---------- */
-  function renderDataInfo() {
-    const lines = finals.filter(function (t) { return t.indexOf('────') !== 0; }).length;
-    const recs = savedAudios.length;
-    let text, cls;
-    if (!dbLoaded) {
-      text = 'Đang kiểm tra dữ liệu cũ…';
-      cls = 'border-slate-200 bg-slate-50 text-slate-600';
-    } else if (lines > 0 || recs > 0) {
-      text = '✔ : ' + lines + ' dòng chữ, ' + recs + ' bản';
-      cls = 'border-emerald-200 bg-emerald-50 text-emerald-700';
-    } else {
-      let cleared = false;
-      try { cleared = localStorage.getItem(CLEARED_KEY) === '1'; } catch (e) {}
-      text = cleared ? '✖' : 'Chưa có dữ liệu cũ';
-      cls = cleared ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-50 text-slate-600';
-    }
-    dataInfo.textContent = text;
-    dataInfo.className = 'text-sm text-center font-medium rounded-xl px-4 py-2 border ' + cls;
+    btnClear.disabled = !hasText && !audioBlobUrl;
   }
 
   /* ---------- Lưu trữ (auto-save text ngầm) ---------- */
   function save() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(finals)); localStorage.removeItem(CLEARED_KEY); }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(finals)); }
     catch (e) { setNote('Không lưu được vào bộ nhớ.', true); }
   }
   function load() {
@@ -219,30 +140,10 @@
     if (left) addFinal(left);
   }
 
-  /* ---------- MỚI: dọn các luồng âm thanh ---------- */
-  function cleanupStreams() {
-    [micStream, displayStream].forEach(function (s) {
-      if (s) s.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
-    });
-    micStream = null;
-    displayStream = null;
-    if (audioCtx) { try { audioCtx.close(); } catch (e) {} audioCtx = null; }
-  }
-
   /* ---------- Khôi phục dữ liệu ---------- */
   finals = load();
   updateButtons();
   if (finals.length) setNote('Đã khôi phục dữ liệu cũ trong bộ nhớ.');
-  dbAll().then(function (list) {
-    savedAudios = list.map(function (x) { return x.blob; });
-    dbLoaded = true;
-    updateButtons();
-    if (savedAudios.length) {
-      btnExportAudio.disabled = false;
-      updateButtons();
-      setNote('Đã khôi phục dữ liệu cũ (chữ + ' + savedAudios.length + ' bản ghi âm).');
-    }
-  }).catch(function () { dbLoaded = true; updateButtons(); });
 
   /* ---------- Nhận diện giọng nói & Ghi âm Audio ---------- */
   if (!SR) {
@@ -327,65 +228,25 @@
       requestWakeLock();
       
       try {
-        let noteAfter = '';
-
-        // MỚI: xin chia sẻ tab/màn hình (phải gọi trước, ngay trong lúc bấm nút)
-        if (chkSystemAudio.checked) {
-          if (!navigator.mediaDevices.getDisplayMedia) {
-            throw new Error('Trình duyệt không hỗ trợ thu âm thanh máy.');
-          }
-          displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-          if (displayStream.getAudioTracks().length === 0) {
-            displayStream.getTracks().forEach(function (t) { t.stop(); });
-            displayStream = null;
-            noteAfter = 'Không có âm thanh máy (quên tick "Chia sẻ âm thanh tab"?). Đang chỉ thu micro.';
-          } else {
-            // Nếu bấm "Dừng chia sẻ" trên thanh Chrome thì chỉ báo, micro vẫn chạy
-            displayStream.getAudioTracks()[0].addEventListener('ended', function () {
-              if (wantListening) setNote('Đã dừng chia sẻ âm thanh máy, vẫn đang thu micro.', true);
-            });
-          }
-        }
-
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const chunks = [];
-        audioChunks = chunks;
-
-        // Luồng để ghi: nếu có âm thanh máy thì trộn micro + âm thanh máy
-        let recordStream = micStream;
-        if (displayStream) {
-          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          const dest = audioCtx.createMediaStreamDestination();
-          audioCtx.createMediaStreamSource(micStream).connect(dest);
-          audioCtx.createMediaStreamSource(new MediaStream(displayStream.getAudioTracks())).connect(dest);
-          recordStream = dest.stream;
-        }
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioChunks = [];
         
-        mediaRecorder = new MediaRecorder(recordStream);
-        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
         
-        mediaRecorder.onstop = async () => {
-          const blob = new Blob(chunks, { type: 'audio/webm' });
-          try { await dbAdd(blob); } catch (e) {}
-          savedAudios.push(blob);
-          try { localStorage.removeItem(CLEARED_KEY); } catch (e) {}
-          updateButtons();
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(audioChunks, { type: 'audio/webm' });
+          if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
+          audioBlobUrl = URL.createObjectURL(blob);
           btnExportAudio.disabled = false;
           btnClear.disabled = false;
           setNote('Đã hoàn tất ghi ngầm âm thanh và văn bản. Bạn có thể tải về!');
         };
         
         mediaRecorder.start(1000);
-        if (finals.length) {
-          finals.push('──── Phiên mới ' + new Date().toLocaleString('vi-VN') + ' ────');
-          save();
-          updateButtons();
-        }
-        if (noteAfter) setNote(noteAfter, true);
         safeStart();
       } catch (err) {
         wantListening = false;
-        cleanupStreams();
         btnStart.disabled = false;
         btnStop.disabled = true;
         setNote('Lỗi quyền Micro: ' + err.message, true);
@@ -401,9 +262,9 @@
       
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(t => t.stop());
         mediaRecorder = null;
       }
-      cleanupStreams();
 
       setTimeout(function () {
         if (!wantListening && btnStart.disabled) {
@@ -457,19 +318,13 @@
   });
 
   btnExportAudio.addEventListener('click', function () {
-    if (!savedAudios.length) return;
-    savedAudios.forEach(function (blob, i) {
-      setTimeout(function () {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = buildFileName(savedAudios.length > 1 ? '_' + (i + 1) + '.webm' : '.webm');
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
-      }, i * 500);
-    });
+    if (!audioBlobUrl) return;
+    const a = document.createElement('a');
+    a.href = audioBlobUrl;
+    a.download = buildFileName('.webm');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   });
 
   /* ---------- Xóa dữ liệu cũ ---------- */
@@ -478,11 +333,13 @@
     finals = [];
     currentInterim = '';
     globalStartTime = 0;
-    try { localStorage.removeItem(STORAGE_KEY); localStorage.setItem(CLEARED_KEY, '1'); } catch (e) {}
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     
-    savedAudios = [];
-    dbClear().catch(function () {});
-    btnExportAudio.disabled = true;
+    if (audioBlobUrl) {
+      URL.revokeObjectURL(audioBlobUrl);
+      audioBlobUrl = null;
+      btnExportAudio.disabled = true;
+    }
     
     setNote('Đã xóa dữ liệu.');
     updateButtons();
