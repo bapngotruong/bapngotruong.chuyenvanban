@@ -63,6 +63,8 @@
       Xu
     </button>
 
+    <p id="dataInfo" class="text-sm text-center font-medium rounded-xl px-4 py-2 border border-slate-200 bg-slate-50 text-slate-600"></p>
+
     <p id="note" class="text-sm text-center text-slate-600 min-h-[1.25rem]"></p>
   </div>
 
@@ -76,6 +78,8 @@
         btnExport = $('btnExport'), btnExportAudio = $('btnExportAudio'), btnClear = $('btnClear');
   const dot = $('dot'), statusText = $('statusText'), note = $('note');
   const chkSystemAudio = $('chkSystemAudio');
+  const dataInfo = $('dataInfo');
+  const CLEARED_KEY = 'baigiang_cleared';
 
   let finals = [];            
   let currentInterim = '';    
@@ -87,7 +91,45 @@
 
   let mediaRecorder = null;
   let audioChunks = [];
-  let audioBlobUrl = null;
+  let savedAudios = [];   // các bản ghi âm đã lưu (giữ lại qua nhiều phiên)
+  let dbLoaded = false;
+
+  /* ---------- Lưu âm thanh bền vững (IndexedDB) ---------- */
+  const DB_NAME = 'baigiang_audio_v1', STORE = 'rec';
+  function openDb() {
+    return new Promise(function (res, rej) {
+      const r = indexedDB.open(DB_NAME, 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true }); };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error); };
+    });
+  }
+  async function dbAdd(blob) {
+    const db = await openDb();
+    return new Promise(function (res, rej) {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).add({ blob: blob, t: Date.now() });
+      tx.oncomplete = function () { res(); };
+      tx.onerror = function () { rej(tx.error); };
+    });
+  }
+  async function dbAll() {
+    const db = await openDb();
+    return new Promise(function (res, rej) {
+      const rq = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+      rq.onsuccess = function () { res(rq.result || []); };
+      rq.onerror = function () { rej(rq.error); };
+    });
+  }
+  async function dbClear() {
+    const db = await openDb();
+    return new Promise(function (res, rej) {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = function () { res(); };
+      tx.onerror = function () { rej(tx.error); };
+    });
+  }
 
   // MỚI: các luồng âm thanh để dọn dẹp khi dừng
   let micStream = null;
@@ -120,12 +162,34 @@
   function updateButtons() {
     const hasText = finals.length > 0 || !!currentInterim.trim();
     btnExport.disabled = !hasText;
-    btnClear.disabled = !hasText && !audioBlobUrl;
+    btnClear.disabled = !hasText && !savedAudios.length;
+    renderDataInfo();
+  }
+
+  /* ---------- Hiển thị tình trạng dữ liệu cũ ---------- */
+  function renderDataInfo() {
+    const lines = finals.filter(function (t) { return t.indexOf('────') !== 0; }).length;
+    const recs = savedAudios.length;
+    let text, cls;
+    if (!dbLoaded) {
+      text = 'Đang kiểm tra dữ liệu cũ…';
+      cls = 'border-slate-200 bg-slate-50 text-slate-600';
+    } else if (lines > 0 || recs > 0) {
+      text = '✔ Vẫn còn dữ liệu lần trước: ' + lines + ' dòng chữ, ' + recs + ' bản ghi âm';
+      cls = 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    } else {
+      let cleared = false;
+      try { cleared = localStorage.getItem(CLEARED_KEY) === '1'; } catch (e) {}
+      text = cleared ? '✖ Đã xóa dữ liệu trước đó' : 'Chưa có dữ liệu cũ';
+      cls = cleared ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-50 text-slate-600';
+    }
+    dataInfo.textContent = text;
+    dataInfo.className = 'text-sm text-center font-medium rounded-xl px-4 py-2 border ' + cls;
   }
 
   /* ---------- Lưu trữ (auto-save text ngầm) ---------- */
   function save() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(finals)); }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(finals)); localStorage.removeItem(CLEARED_KEY); }
     catch (e) { setNote('Không lưu được vào bộ nhớ.', true); }
   }
   function load() {
@@ -169,6 +233,16 @@
   finals = load();
   updateButtons();
   if (finals.length) setNote('Đã khôi phục dữ liệu cũ trong bộ nhớ.');
+  dbAll().then(function (list) {
+    savedAudios = list.map(function (x) { return x.blob; });
+    dbLoaded = true;
+    updateButtons();
+    if (savedAudios.length) {
+      btnExportAudio.disabled = false;
+      updateButtons();
+      setNote('Đã khôi phục dữ liệu cũ (chữ + ' + savedAudios.length + ' bản ghi âm).');
+    }
+  }).catch(function () { dbLoaded = true; updateButtons(); });
 
   /* ---------- Nhận diện giọng nói & Ghi âm Audio ---------- */
   if (!SR) {
@@ -274,7 +348,8 @@
         }
 
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        audioChunks = [];
+        const chunks = [];
+        audioChunks = chunks;
 
         // Luồng để ghi: nếu có âm thanh máy thì trộn micro + âm thanh máy
         let recordStream = micStream;
@@ -287,18 +362,25 @@
         }
         
         mediaRecorder = new MediaRecorder(recordStream);
-        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
         
-        mediaRecorder.onstop = () => {
-          const blob = new Blob(audioChunks, { type: 'audio/webm' });
-          if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
-          audioBlobUrl = URL.createObjectURL(blob);
+        mediaRecorder.onstop = async () => {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          try { await dbAdd(blob); } catch (e) {}
+          savedAudios.push(blob);
+          try { localStorage.removeItem(CLEARED_KEY); } catch (e) {}
+          updateButtons();
           btnExportAudio.disabled = false;
           btnClear.disabled = false;
           setNote('Đã hoàn tất ghi ngầm âm thanh và văn bản. Bạn có thể tải về!');
         };
         
         mediaRecorder.start(1000);
+        if (finals.length) {
+          finals.push('──── Phiên mới ' + new Date().toLocaleString('vi-VN') + ' ────');
+          save();
+          updateButtons();
+        }
         if (noteAfter) setNote(noteAfter, true);
         safeStart();
       } catch (err) {
@@ -375,13 +457,19 @@
   });
 
   btnExportAudio.addEventListener('click', function () {
-    if (!audioBlobUrl) return;
-    const a = document.createElement('a');
-    a.href = audioBlobUrl;
-    a.download = buildFileName('.webm');
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    if (!savedAudios.length) return;
+    savedAudios.forEach(function (blob, i) {
+      setTimeout(function () {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = buildFileName(savedAudios.length > 1 ? '_' + (i + 1) + '.webm' : '.webm');
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+      }, i * 500);
+    });
   });
 
   /* ---------- Xóa dữ liệu cũ ---------- */
@@ -390,13 +478,11 @@
     finals = [];
     currentInterim = '';
     globalStartTime = 0;
-    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    try { localStorage.removeItem(STORAGE_KEY); localStorage.setItem(CLEARED_KEY, '1'); } catch (e) {}
     
-    if (audioBlobUrl) {
-      URL.revokeObjectURL(audioBlobUrl);
-      audioBlobUrl = null;
-      btnExportAudio.disabled = true;
-    }
+    savedAudios = [];
+    dbClear().catch(function () {});
+    btnExportAudio.disabled = true;
     
     setNote('Đã xóa dữ liệu.');
     updateButtons();
