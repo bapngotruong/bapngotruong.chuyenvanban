@@ -175,12 +175,12 @@
       text = 'Đang kiểm tra dữ liệu cũ…';
       cls = 'border-slate-200 bg-slate-50 text-slate-600';
     } else if (lines > 0 || recs > 0) {
-      text = '✔ Vẫn còn dữ liệu lần trước: ' + lines + ' dòng chữ, ' + recs + ' bản ghi âm';
+      text = '✔ : ' + lines + ' dòng chữ, ' + recs + ' bản';
       cls = 'border-emerald-200 bg-emerald-50 text-emerald-700';
     } else {
       let cleared = false;
       try { cleared = localStorage.getItem(CLEARED_KEY) === '1'; } catch (e) {}
-      text = cleared ? '✖ Đã xóa dữ liệu trước đó' : 'Chưa có dữ liệu cũ';
+      text = cleared ? '✖' : 'Chưa có dữ liệu cũ';
       cls = cleared ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-50 text-slate-600';
     }
     dataInfo.textContent = text;
